@@ -5,7 +5,7 @@ const http = require("http"), fs = require("fs"), path = require("path"), { WebS
 const PORT = process.env.PORT || 3000, ROOT = __dirname
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".txt": "text/plain", ".png": "image/png", ".css": "text/css" }
 const srv = http.createServer((req, res) => {
-	let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = "/Minecraft_version_5.html"
+	let p = decodeURIComponent(req.url.split("?")[0]); if (p === "/") p = fs.existsSync(path.join(ROOT, "index.html")) ? "/index.html" : "/Minecraft_version_5.html"
 	const f = path.join(ROOT, path.normalize(p))
 	if (!f.startsWith(ROOT) || /server\.js$|node_modules|package/.test(f)) { res.writeHead(403); return res.end() }
 	fs.readFile(f, (e, d) => { if (e) { res.writeHead(404); return res.end("404") } res.writeHead(200, { "Content-Type": MIME[path.extname(f)] || "application/octet-stream" }); res.end(d) })
