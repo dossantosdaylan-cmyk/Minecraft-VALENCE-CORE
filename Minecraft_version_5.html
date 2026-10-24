@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 	<head>
 		<meta charset="utf-8">
@@ -1561,6 +1561,7 @@ function MineKhan() {
 			}
 			playSound(t ? 'place' : 'break', matOf(t ? t : world.getBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2])))
 			world.setBlock(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2], t)
+			if (window.JSMP) JSMP.blk(hitBox.pos[0], hitBox.pos[1], hitBox.pos[2], t)
 			if (t) { p.lastPlace = Date.now() } else { p.lastBreak = Date.now() + extra; p.swingUntil = Date.now() + 200 }
 		}
 	}
@@ -2285,10 +2286,10 @@ function MineKhan() {
 	}
         
 	// Skins procedurales mejoradas (con ojos y boca)
-	function drawPlayerBody(o, idx, now) {
+	function drawPlayerBody(o, idx, now, skinOv) {
 		const feet = o.y - o.bottomH
 		const flash = now < (o.flashUntil || 0)
-		const kk = playerSkin[idx] | 0, tk = (SKINS[kk] && SKINS[kk].tex !== undefined) ? SKINS[kk].tex : kk, shirt = SIX("skS" + tk)
+		const kk = (skinOv !== undefined ? skinOv : playerSkin[idx]) | 0, tk = (SKINS[kk] && SKINS[kk].tex !== undefined) ? SKINS[kk].tex : kk, shirt = SIX("skS" + tk)
 		const moving = Math.abs(o.velocity.x) + Math.abs(o.velocity.z) > 0.012
 		const sw = moving ? Math.sin(now / 110) * 0.8 : 0
 		let atk = 0; const ts = (o.swingUntil || 0) - now
@@ -2457,7 +2458,7 @@ function MineKhan() {
 	}
 	// FASE 1 — mobR condicional POTATO (22 bloques en vez de 48)
 	function drawEntities() {
-		if (!world || (!mobs.length && !coop && !ent && !fireballs.length)) return
+		if (!world || (!mobs.length && !coop && !ent && !fireballs.length && !(window.JSMP && JSMP.remotes.size))) return
 		const now = Date.now()
 		gl.disableVertexAttribArray(glCache.aShadow); gl.vertexAttrib1f(glCache.aShadow, 1.0)
 		if (ent && Math.abs(ent.x - p.x) < 64 && Math.abs(ent.z - p.z) < 64) drwEnt()
@@ -2466,8 +2467,9 @@ function MineKhan() {
 		if (JS.draw) JS.draw(now)
 		for (const f of fireballs) drawBox(f.x, f.y, f.z, 0, 0, 0, 0, 0.5, 0.5, 0.5, SIX("lavaBlock"), 0, 0)
 		if (coop) for (let i = 0; i < players.length; i++) if (players[i] !== p) drawPlayerBody(players[i], i, now)
+		if (window.JSMP) JSMP.draw(now)
 		gl.enableVertexAttribArray(glCache.aShadow)
-		drawNicks();
+		drawNicks(); if (window.JSMP) JSMP.nicks()
 	}
 
 	let lastMobT = 0, nextSpawn = 0
@@ -2499,11 +2501,12 @@ function MineKhan() {
 	// mobs medios a 30 Hz, mobs quietos sin colisiones, chequeo de sol de zombies cada 0.25 s.
 	let mobFrame = 0; const _sc = new Map()
 	function updateMobs() {
-		if (!world || screen !== "play") { if (JS.idle) JS.idle(); return }
+		if (!world || screen !== "play") { if (JS.idle) JS.idle(); if (window.JSMP) JSMP.idle(); return }
 		const now = Date.now(); let dt = (now - lastMobT) / 1000; lastMobT = now; if (dt <= 0) return; if (dt > 0.05) dt = 0.05
 		const ps = coop ? players : [players[0]]
 		spawnTick(now, ps); spawnHostile(now, ps); updEnt(now, dt, ps); updFireballs(now, dt, ps)
 		if (JS.tick) JS.tick(now, dt, ps)
+		if (window.JSMP) JSMP.tick(now)
 		mobFrame++; _sc.clear() // el mundo no cambia mientras se itera, asi que la cache vale solo este frame
 		const gb = (x, y, z) => { const k = ((x + 524288) * 1048576 + (z + 524288)) * 512 + y + 64; let v = _sc.get(k); if (v === undefined) { const bb = world.getBlock(x, y, z); v = bb && (bb & 0xff) !== blockIds.waterBlock ? 1 : 0; _sc.set(k, v) } return v }
 		const blocked = (x, y, z, r, h) => { const x0 = Math.round(x - r), x1 = Math.round(x + r), z0 = Math.round(z - r), z1 = Math.round(z + r), y0 = Math.round(y + 0.05), y1 = Math.round(y + h - 0.05); for (let a = x0; a <= x1; a++) for (let c = z0; c <= z1; c++) for (let b = y0; b <= y1; b++) if (gb(a, b, c)) return true; return false }
@@ -3354,7 +3357,7 @@ function MineKhan() {
 	function startOnline(seed, mode, name) {
 		playSound('click'); survival = mode === "survival"; superflat = false; trees = true; animals = true; hostiles = survival; coop = false; coopCount = 1
 		caves = !limited(); worldSeed = seed | 0; seedHash(worldSeed); caveNoise = openSimplexNoise(worldSeed); noiseSeed(worldSeed); generatedChunks = 0
-		world = new World(); world.id = Date.now(); world.name = "Online " + (name || ""); win.world = world; world.loadChunks(); world.chunkGenQueue.sort(sortChunks); changeScene("loading")
+		world = new World(); world.id = Date.now(); world.name = "Online " + (name || ""); world.online = true; win.world = world; world.loadChunks(); world.chunkGenQueue.sort(sortChunks); changeScene("loading")
 	}
 	const MP = window.JSMP = (() => {
 		const root = document.createElement("div"); root.id = "mpui"; root.className = "hidden"; document.body.appendChild(root)
@@ -3391,17 +3394,17 @@ function MineKhan() {
 			let ws; try { ws = S.ws = new WebSocket(u) } catch (e) { S.retry = setTimeout(connect, 5000); return }
 			ws.onopen = () => { S.ok = true; send({ t: "hello", nick: settings.nick, skin: playerSkin[0] | 0 }); send({ t: "list" }); status() }
 			ws.onmessage = e => { let m; try { m = JSON.parse(e.data) } catch (x) { return } onMsg(m) }
-			ws.onclose = () => { if (S.ws !== ws) return; S.ws = null; S.ok = false; S.room = null; if (S.open) { if (S.view === "room") { S.view = "rooms"; draw() } else { status(); fillList() } S.retry = setTimeout(connect, 4000) } }
+			ws.onclose = () => { if (S.ws !== ws) return; S.ws = null; S.ok = false; S.room = null; onRoom(null); if (S.open) { if (S.view === "room") { S.view = "rooms"; draw() } else { status(); fillList() } S.retry = setTimeout(connect, 4000) } }
 			ws.onerror = () => {}
 		}
 		function disconnect() { clearTimeout(S.retry); clearInterval(S.poll); if (S.ws) { const w = S.ws; S.ws = null; try { w.close() } catch (e) {} } S.ok = false; S.room = null }
 		function onMsg(m) {
 			if (m.t === "welcome") S.me = m.id
 			else if (m.t === "rooms") { S.rooms = m.rooms || []; S.online = m.online | 0; status(); fillList() }
-			else if (m.t === "room") { S.room = m.room; if (S.view !== "room") { S.view = "room"; S.chat = []; draw() } else fillRoom() }
-			else if (m.t === "left") { S.room = null; S.view = "rooms"; draw(); send({ t: "list" }) }
+			else if (m.t === "room") { S.room = m.room; onRoom(S.room); if (S.view !== "room") { S.view = "room"; S.chat = []; draw() } else fillRoom() }
+			else if (m.t === "left") { S.room = null; onRoom(null); S.view = "rooms"; draw(); send({ t: "list" }) }
 			else if (m.t === "chat") { S.chat.push(m); if (S.chat.length > 60) S.chat.shift(); fillChat() }
-			else if (m.t === "start") { S.playing = true; startOnline(m.seed, m.mode, S.room && S.room.name) }
+			else if (m.t === "start") { S.playing = true; resetSync(); startOnline(m.seed, m.mode, S.room && S.room.name) }
 			else if (m.t === "rel") { if (MP.onRel) MP.onRel(m) }
 			else if (m.t === "err") msg(m.m, true)
 		}
@@ -3467,8 +3470,119 @@ function MineKhan() {
 			e.stopPropagation(); if (e.key === "Enter" && e.target.id === "mp-ci") { const m = e.target.value.trim(); if (m) send({ t: "chat", m }); e.target.value = "" }
 		})
 		root.addEventListener("keyup", e => e.stopPropagation()); root.addEventListener("keypress", e => e.stopPropagation())
+
+		// ===== SINCRONIZACION EN PARTIDA (jugadores + bloques) =====
+		// Mensajes (siempre {t:"rel", d:{k:...}}):  pos = mi posicion | blk = un bloque | need = pido el estado | sync = lote de bloques
+		const remotes = new Map(), pinfo = new Map(), edits = new Map(), todo = new Set(), jobs = [], tags = []
+		let lastSend = 0, lastKey = "", needSent = false, lastWorld = null, nextApply = 0, nextSync = 0, lastDraw = 0
+		const dimN = () => world && world.isNether ? 1 : 0
+		const ek = (n, x, y, z) => n + ":" + x + "," + y + "," + z
+		const online = () => !!(S.playing && S.room && S.ws && S.ws.readyState === 1 && world && world.online)
+		const num = (v, d) => { v = +v; return isFinite(v) ? v : d }
+		function setEdit(n, x, y, z, id, done) {
+			const k = ek(n, x, y, z)
+			if (edits.size > 40000 && !edits.has(k)) { const f = edits.keys().next().value; edits.delete(f); todo.delete(f) }
+			edits.set(k, { n, x, y, z, id, done: !!done }); if (done) todo.delete(k); else todo.add(k)
+		}
+		function resetSync() { edits.clear(); todo.clear(); remotes.clear(); jobs.length = 0; needSent = false; lastWorld = null; lastKey = "" }
+		function tryApply(e) {
+			if (!world || e.n !== dimN()) return false
+			const row = world.chunks[e.x >> 4], ch = row && row[e.z >> 4]
+			if (!ch || !ch.generated || !ch.populated) return false // el chunk todavia no esta listo: reintenta luego
+			world.setBlock(e.x, e.y, e.z, e.id); return true
+		}
+		function blk(x, y, z, id) { // llamada local al poner/romper
+			if (!online()) return
+			x |= 0; y |= 0; z |= 0; id |= 0; setEdit(dimN(), x, y, z, id, true)
+			send({ t: "rel", d: { k: "blk", x, y, z, id, n: dimN() } })
+		}
+		function onRel(m) {
+			const d = m && m.d, id = m && m.from; if (!d || !id || id === S.me) return
+			if (d.k === "pos") {
+				if (!pinfo.has(id)) return
+				const x = num(d.x, NaN), y = num(d.y, NaN), z = num(d.z, NaN); if (x !== x || y !== y || z !== z) return
+				let r = remotes.get(id)
+				if (!r) { r = { x, y, z, tx: x, ty: y, tz: z, rx: 0, ry: 0, trx: 0, tr: 0, skin: 0, dim: 0, seen: 0, bottomH: 0, velocity: { x: 0, y: 0, z: 0 }, flashUntil: 0, swingUntil: 0 }; remotes.set(id, r) }
+				const mv = Math.abs(x - r.tx) + Math.abs(z - r.tz)
+				r.tx = x; r.ty = y; r.tz = z; r.trx = num(d.rx, 0); r.tr = num(d.ry, 0); r.dim = d.n ? 1 : 0; r.seen = Date.now()
+				r.skin = Math.abs(d.s | 0) % SKINS.length; r.velocity.x = mv > 0.04 ? 0.1 : 0
+				if (Math.abs(r.x - x) + Math.abs(r.z - z) > 12 || Math.abs(r.y - y) > 12) { r.x = x; r.y = y; r.z = z; r.rx = r.trx; r.ry = r.tr }
+				if (d.w) r.swingUntil = r.seen + 250
+			} else if (d.k === "blk") {
+				const x = d.x | 0, y = d.y | 0, z = d.z | 0, bid = d.id | 0
+				if (y <= 0 || y >= maxHeight || Math.abs(x) > 1e6 || Math.abs(z) > 1e6 || bid < 0 || bid > 65535) return
+				setEdit(d.n ? 1 : 0, x, y, z, bid, false)
+			} else if (d.k === "need") { // alguien recien entro y pide los bloques editados; solo responde el anfitrion
+				if (S.room && S.room.host === S.me && online()) jobs.push({ to: id, list: [...edits.values()], i: 0 })
+			} else if (d.k === "sync") {
+				if (d.to !== S.me || !Array.isArray(d.b)) return
+				for (let i = 0; i + 4 < d.b.length && i < 1500; i += 5) { const x = d.b[i] | 0, y = d.b[i + 1] | 0, z = d.b[i + 2] | 0, bid = d.b[i + 3] | 0; if (y > 0 && y < maxHeight && bid >= 0 && bid <= 65535) setEdit(d.b[i + 4] ? 1 : 0, x, y, z, bid, false) }
+			}
+		}
+		function onRoom(room) {
+			const old = new Set(pinfo.keys()); pinfo.clear()
+			if (room) for (const q of room.players) pinfo.set(q.id, q)
+			for (const id of [...remotes.keys()]) if (!pinfo.has(id)) remotes.delete(id)
+			if (S.playing && room && typeof toast === "function") {
+				for (const [id, q] of pinfo) if (id !== S.me && !old.has(id) && old.size) toast(q.nick + " se unió")
+				for (const id of old) if (id !== S.me && !pinfo.has(id)) toast("Un jugador salió")
+			}
+		}
+		function tick(now) { // se llama cada frame desde updateMobs (solo en pantalla "play")
+			if (!online()) { needSent = false; return }
+			if (!needSent) { needSent = true; send({ t: "rel", d: { k: "need" } }) }
+			// 1) mi posicion ~10 veces por segundo (si no me muevo, un latido por segundo)
+			if (now - lastSend >= 100) {
+				const f = a => Math.round(a * 100) / 100, x = f(p.x), y = f(p.y - p.bottomH), z = f(p.z), rx = f(p.rx), ry = f(p.ry), sw = p.swingUntil > now ? 1 : 0
+				const key = x + "," + y + "," + z + "," + rx + "," + ry + "," + sw
+				if (key !== lastKey || now - lastSend >= 1000) { lastKey = key; lastSend = now; send({ t: "rel", d: { k: "pos", x, y, z, rx, ry, s: playerSkin[0] | 0, n: dimN(), w: sw } }) }
+			}
+			// 2) aplicar bloques pendientes (chunks que aun no estaban listos)
+			if (world !== lastWorld) { lastWorld = world; for (const k of edits.keys()) todo.add(k) }
+			if (now >= nextApply && todo.size) {
+				nextApply = now + 300; let done = 0, seen = 0
+				for (const k of todo) { if (++seen > 3000 || done >= 150) break; const e = edits.get(k); if (!e) { todo.delete(k); continue } if (tryApply(e)) { todo.delete(k); done++ } }
+			}
+			// 3) enviar el estado a un jugador nuevo en lotes chicos (<16 KB, ~14 msg/s)
+			if (jobs.length && now >= nextSync) {
+				nextSync = now + 70; const j = jobs[0], b = []
+				for (const e of j.list.slice(j.i, j.i + 250)) b.push(e.x, e.y, e.z, e.id, e.n)
+				j.i += 250; if (j.i >= j.list.length) jobs.shift()
+				if (b.length) send({ t: "rel", d: { k: "sync", to: j.to, b } })
+			}
+			// 4) quitar jugadores que dejaron de mandar datos
+			for (const [id, r] of remotes) if (now - r.seen > 15000) remotes.delete(id)
+		}
+		function drawRemotes(now) {
+			if (!remotes.size || !online()) return
+			const dt = Math.min(0.1, Math.max(0.001, (now - (lastDraw || now)) / 1000)); lastDraw = now; const a = 1 - Math.exp(-dt * 14), dn = dimN()
+			for (const r of remotes.values()) {
+				r.x += (r.tx - r.x) * a; r.y += (r.ty - r.y) * a; r.z += (r.tz - r.z) * a; r.rx += (r.trx - r.rx) * a
+				let dy = r.tr - r.ry; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); r.ry += dy * a
+				if (r.dim !== dn || Math.abs(r.x - p.x) > 64 || Math.abs(r.z - p.z) > 64) continue
+				drawPlayerBody(r, 0, now, r.skin)
+			}
+		}
+		function nicks() { // nick flotante sobre la cabeza (misma proyeccion que fase2.js)
+			let used = 0
+			if (online() && screen === "play" && remotes.size) {
+				const e = p.transformation.elements, pr = p.projection, cv = canvas.getBoundingClientRect(), dn = dimN()
+				for (const [id, r] of remotes) {
+					if (r.dim !== dn) continue
+					const wx = r.x, wy = r.y + 2.15, wz = r.z
+					const cx = e[0] * wx + e[1] * wy + e[2] * wz + e[3], cy = e[4] * wx + e[5] * wy + e[6] * wz + e[7], cz = e[8] * wx + e[9] * wy + e[10] * wz + e[11], w = pr[4] * cz
+					if (w <= 0.05 || w > 48) continue
+					const nx = pr[0] * cx / w, ny = pr[1] * cy / w; if (nx < -1.1 || nx > 1.1 || ny < -1.1 || ny > 1.1) continue
+					let t = tags[used++]; if (!t) { t = tags[used - 1] = document.createElement("div"); t.style.cssText = "position:fixed;z-index:35;pointer-events:none;transform:translate(-50%,-100%);font:bold 13px monospace;color:#fff;text-shadow:1px 1px 2px #000,-1px -1px 2px #000;padding:1px 5px;background:rgba(0,0,0,.35);border-radius:3px;white-space:nowrap"; document.body.appendChild(t) }
+					const q = pinfo.get(id); t.textContent = q ? q.nick : "Jugador"; t.style.display = "block"
+					t.style.left = Math.round(cv.left + (nx * 0.5 + 0.5) * cv.width) + "px"; t.style.top = Math.round(cv.top + (1 - (ny * 0.5 + 0.5)) * cv.height) + "px"
+				}
+			}
+			for (let i = used; i < tags.length; i++) tags[i].style.display = "none"
+		}
+		const idle = () => { for (const t of tags) t.style.display = "none" }
 		const MPo = {
-			root, send, onRel: null,
+			root, send, remotes, onRel, onRoom, tick, idle, draw: drawRemotes, nicks, blk,
 			open() {
 				S.open = true; S.playing = false; S.skin = playerSkin[0] | 0; S.msg = ""
 				if (!settings.nick) settings.nick = "Jugador" + (100 + Math.random() * 900 | 0)
